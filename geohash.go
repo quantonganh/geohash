@@ -16,10 +16,14 @@ const (
 	alphabet = "0123456789bcdefghjkmnpqrstuvwxyz"
 
 	earthRadius = 6371.0 // Earth's radius in km
+	// https://github.com/redis/redis/blob/fc0c9c8097a5b2bc8728bec9cfee26817a702f09/src/geohash_helper.c#L54
+	mercatorMax = 20037.73 // in km
 	// https://en.wikipedia.org/wiki/Latitude#Meridian_distance
 	lenOfADegreeOfLat = 111.1
 	// https://en.wikipedia.org/wiki/Longitude#Length_of_a_degree_of_longitudea
 	lenOfADegreeOfLng = 111.320
+
+	maxLength = 12
 )
 
 func ParseCoordinate(coords string) (lat float64, lng float64, err error) {
@@ -74,7 +78,7 @@ func interleave32Bits(lat32, lng32 uint32) uint64 {
 	// uint64(lat32) & (1 << i): performs bitwise AND operation -> isolates the value of i-th bit
 	// (... << i): places the isolated bit at the correct position in the 64-bit result
 	// result |= (...): updates the result by using bitwise OR operator
-	for i := uint(0); i < 32; i++ {
+	for i := 0; i < 32; i++ {
 		result |= (uint64(lat32) & (1 << i)) << i
 		result |= (uint64(lng32) & (1 << i)) << (i + 1)
 	}
@@ -87,7 +91,7 @@ func uint64ToBase32(value uint64) string {
 
 	for i := 0; i < 12; i++ {
 		// Extract the next 5 bits from the high bits
-		chunk := value >> 59
+		chunk := value >> (64 - 5)
 
 		// Map the 5-bits chunk to an integer and append to the result
 		result = append(result, alphabet[chunk])
@@ -131,7 +135,7 @@ func Base32ToUint64(hash string) uint64 {
 	}
 
 	// Pad 4 zero digits to make it 64 bits
-	result <<= 4
+	result <<= (64 - 5*maxLength)
 
 	return result
 }
@@ -160,5 +164,28 @@ func BoundingBox(lat, lng, r float64) (float64, float64, float64, float64) {
 	minLng := lng - deltaLng
 	maxLng := lng + deltaLng
 
-	return minLat, maxLat, minLng, maxLng
+	return minLat, minLng, maxLat, maxLng
+}
+
+// https://eugene-eeo.github.io/blog/geohashing.html
+func EstimateLengthRequired(r float64) int {
+	if r == 0 {
+		return maxLength
+	}
+
+	p := 0
+	for r < mercatorMax {
+		r *= 2
+		p += 2
+	}
+
+	l := p / 5
+	if l < 1 {
+		l = 1
+	}
+	if l > maxLength {
+		l = maxLength
+	}
+
+	return l
 }
